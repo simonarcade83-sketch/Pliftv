@@ -20,6 +20,11 @@ const App: React.FC = () => {
   const [favorites, setFavorites] = useLocalStorage<string[]>('iptv-favorites', []);
   const [history, setHistory] = useLocalStorage<string[]>('iptv-history', []);
 
+  const goBackToMain = useCallback(() => {
+    setCurrentChannel(null);
+    setView('main');
+  }, []);
+
   const loadPlaylist = useCallback(async (playlist: Playlist) => {
     setIsLoading(true);
     setError(null);
@@ -27,7 +32,7 @@ const App: React.FC = () => {
       const categories = await processPlaylistInBackground({ type: 'LOAD', playlist });
       setActivePlaylistData(categories);
       setActivePlaylistId(playlist.id);
-      setView('main');
+      goBackToMain();
     } catch (e: any) {
       setError(e.message || 'Error al cargar la lista. Por favor, comprueba la fuente y el formato.');
       console.error(e);
@@ -36,7 +41,7 @@ const App: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [setActivePlaylistId]);
+  }, [setActivePlaylistId, goBackToMain]);
 
   useEffect(() => {
     const initialize = async () => {
@@ -61,12 +66,12 @@ const App: React.FC = () => {
         if (playlists.length === 0) {
           setView('addPlaylist');
         } else {
-          setView('main');
+          goBackToMain();
         }
       }
     }, 2000);
     return () => clearTimeout(timer);
-  }, [view, playlists.length, isLoading]);
+  }, [view, playlists.length, isLoading, goBackToMain]);
 
   const handleAddPlaylist = async (playlistData: Omit<Playlist, 'id'>) => {
     setIsLoading(true);
@@ -89,7 +94,7 @@ const App: React.FC = () => {
         setPlaylists(prev => [...prev, newPlaylist]);
         setActivePlaylistData(categories);
         setActivePlaylistId(newPlaylist.id);
-        setView('main');
+        goBackToMain();
     } catch (e: any) {
         setError(e.message || 'Error al añadir la lista. Por favor, comprueba la fuente y el formato.');
         console.error(e);
@@ -143,7 +148,7 @@ const App: React.FC = () => {
     
     switch (view) {
       case 'player':
-        return currentChannel && <PlayerScreen channel={currentChannel} onBack={() => setView('main')} />;
+        return currentChannel && <PlayerScreen channel={currentChannel} onBack={goBackToMain} />;
       case 'addPlaylist':
         return (
           <AddPlaylistScreen 
@@ -151,7 +156,7 @@ const App: React.FC = () => {
             isLoading={isLoading}
             error={error}
             showBackButton={playlists.length > 0}
-            onBack={() => setView('main')}
+            onBack={goBackToMain}
           />
         );
       case 'main':
