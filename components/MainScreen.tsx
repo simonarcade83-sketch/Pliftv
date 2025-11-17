@@ -1,6 +1,8 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import type { Playlist, Category, Channel } from '../types';
 import { FixedSizeGrid as Grid } from 'react-window';
+import { useDebounce } from '../hooks/useDebounce';
+import { filterChannelsInBackground } from '../services/playlistParser';
 
 const ChannelCard = ({ channel, onPlayChannel, onToggleFavorite, favorites, style }: { channel: Channel, onPlayChannel: (channel: Channel) => void, onToggleFavorite: (channelId: string) => void, favorites: string[], style: React.CSSProperties }) => (
     <div style={style} className="p-2">
@@ -109,28 +111,43 @@ interface MainScreenProps {
 
 const MainScreen: React.FC<MainScreenProps> = ({ playlists, activePlaylistId, onSelectPlaylist, onAddPlaylist, onDeletePlaylist, onRefreshPlaylist, categories, onPlayChannel, favorites, history, onToggleFavorite, isLoading, error }) => {
     const [searchTerm, setSearchTerm] = useState('');
+    const debouncedSearchTerm = useDebounce(searchTerm, 300);
     const [selectedCategory, setSelectedCategory] = useState<string>('All');
     const [mainView, setMainView] = useState<MainView>('categories');
+    const [isFiltering, setIsFiltering] = useState(false);
+    const [displayChannels, setDisplayChannels] = useState<Channel[]>([]);
 
-    const allChannels = useMemo(() => categories.flatMap((cat) => cat.channels), [categories]);
+    const allChannels = useMemo(() => categories.flatMap((cat) => cat.channels.map(c => ({...c, group: cat.name }))), [categories]);
 
-    const filteredChannels = useMemo(() => {
-        let channelsToFilter: Channel[] = [];
-        if(mainView === 'favorites') {
-            channelsToFilter = allChannels.filter((c) => favorites.includes(c.id));
-        } else if (mainView === 'history') {
-             channelsToFilter = history.map((id) => allChannels.find((c) => c.id === id)).filter((c): c is Channel => !!c);
-        } else { // categories
-            if(selectedCategory === 'All') {
-                channelsToFilter = allChannels;
-            } else {
-                channelsToFilter = categories.find((cat) => cat.name === selectedCategory)?.channels || [];
-            }
-        }
-        
-        if (!searchTerm) return channelsToFilter;
-        return channelsToFilter.filter((channel) => channel.name.toLowerCase().includes(searchTerm.toLowerCase()));
-    }, [searchTerm, selectedCategory, mainView, categories, allChannels, favorites, history]);
+    useEffect(() => {
+        // Reset category when switching main view
+        setSelectedCategory('All');
+    }, [mainView]);
+
+    useEffect(() => {
+      if (isLoading) return; // Don't filter while loading a whole playlist
+      setIsFiltering(true);
+      
+      const payload = {
+        type: 'FILTER' as const,
+        allChannels,
+        mainView,
+        selectedCategory,
+        searchTerm: debouncedSearchTerm,
+        favorites,
+        history,
+      };
+
+      filterChannelsInBackground(payload)
+        .then(filtered => {
+          setDisplayChannels(filtered);
+        })
+        .catch(console.error)
+        .finally(() => {
+          setIsFiltering(false);
+        });
+    }, [debouncedSearchTerm, selectedCategory, mainView, allChannels, favorites, history, isLoading]);
+
 
     const activePlaylist = playlists.find((p) => p.id === activePlaylistId);
 
@@ -157,7 +174,7 @@ const MainScreen: React.FC<MainScreenProps> = ({ playlists, activePlaylistId, on
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h5M20 20v-5h-5M20 4s-1.5-2-5-2-6 2.5-6 6s2.5 6 6 6 5-2 5-2" /></svg>
                         </button>
                         <button disabled={isLoading} onClick={() => onDeletePlaylist(activePlaylist.id)} title="Eliminar Lista" className="p-2 rounded-full hover:bg-red-800 text-red-500 transition-colors disabled:opacity-50">
-                            <svg xmlns="http://www.w.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                         </button>
                         </>
                     )}
@@ -199,12 +216,12 @@ const MainScreen: React.FC<MainScreenProps> = ({ playlists, activePlaylistId, on
 
                 {/* Main Content */}
                 <main className="flex-grow overflow-y-auto relative">
-                    {isLoading && <div className="absolute inset-0 flex justify-center items-center bg-brand-bg bg-opacity-75 z-30"><p>Cargando lista...</p></div>}
+                    {(isLoading || isFiltering) && <div className="absolute inset-0 flex justify-center items-center bg-brand-bg bg-opacity-75 z-30"><p>{isLoading ? 'Cargando lista...' : 'Filtrando...'}</p></div>}
                     {error && <div className="flex justify-center items-center h-full"><p className="text-red-500">{error}</p></div>}
                     {!isLoading && !error && (
-                        <ChannelGrid channels={filteredChannels} onPlayChannel={onPlayChannel} onToggleFavorite={onToggleFavorite} favorites={favorites} />
+                        <ChannelGrid channels={displayChannels} onPlayChannel={onPlayChannel} onToggleFavorite={onToggleFavorite} favorites={favorites} />
                     )}
-                     {!isLoading && !error && filteredChannels.length === 0 && (
+                     {!isLoading && !error && !isFiltering && displayChannels.length === 0 && (
                         <div className="flex justify-center items-center h-full">
                             <p className="text-brand-text-dark">No se encontraron canales.</p>
                         </div>
