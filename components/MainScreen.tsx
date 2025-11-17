@@ -1,33 +1,93 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import type { Playlist, Category, Channel } from '../types';
+import { FixedSizeGrid as Grid } from 'react-window';
 
-// Sub-components for better organization
-const ChannelGrid = React.memo(({ channels, onPlayChannel, onToggleFavorite, favorites }: { channels: Channel[], onPlayChannel: (channel: Channel) => void, onToggleFavorite: (channelId: string) => void, favorites: string[] }) => (
-    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8 gap-4 p-4">
-        {channels.map(channel => (
-            <div key={channel.id} className="group relative bg-brand-surface rounded-lg shadow-lg overflow-hidden cursor-pointer transform hover:scale-105 transition-transform" onClick={() => onPlayChannel(channel)}>
-                <div className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => { e.stopPropagation(); onToggleFavorite(channel.id); }}>
-                    <svg xmlns="http://www.w3.org/2000/svg" className={`h-6 w-6 ${favorites.includes(channel.id) ? 'text-yellow-400' : 'text-white'}`} viewBox="0 0 20 20" fill="currentColor">
-                        <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+const ChannelCard = ({ channel, onPlayChannel, onToggleFavorite, favorites, style }: { channel: Channel, onPlayChannel: (channel: Channel) => void, onToggleFavorite: (channelId: string) => void, favorites: string[], style: React.CSSProperties }) => (
+    <div style={style} className="p-2">
+        <div className="group w-full h-full relative bg-brand-surface rounded-lg shadow-lg overflow-hidden cursor-pointer transform hover:scale-105 transition-transform" onClick={() => onPlayChannel(channel)}>
+            <div className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => { e.stopPropagation(); onToggleFavorite(channel.id); }}>
+                <svg xmlns="http://www.w3.org/2000/svg" className={`h-6 w-6 ${favorites.includes(channel.id) ? 'text-yellow-400' : 'text-white'}`} viewBox="0 0 20 20" fill="currentColor">
+                    <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                </svg>
+            </div>
+            <div className="w-full h-2/3 bg-gray-800 flex items-center justify-center">
+                {channel.logo ? (
+                    <img src={channel.logo} alt={channel.name} className="max-w-full max-h-full object-contain p-2" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; (e.target as HTMLImageElement).parentElement?.querySelector('.placeholder-icon')?.classList.remove('hidden'); }} />
+                ) : null}
+                <div className={`placeholder-icon ${channel.logo ? 'hidden' : ''} text-brand-text-dark`}>
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z" />
                     </svg>
                 </div>
-                <div className="aspect-w-16 aspect-h-9 bg-gray-800 flex items-center justify-center">
-                    {channel.logo ? (
-                        <img src={channel.logo} alt={channel.name} className="w-full h-full object-contain p-2" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; (e.target as HTMLImageElement).parentElement?.querySelector('.placeholder-icon')?.classList.remove('hidden'); }} />
-                    ) : null}
-                    <div className={`placeholder-icon ${channel.logo ? 'hidden' : ''} text-brand-text-dark`}>
-                       <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z" />
-                       </svg>
-                    </div>
-                </div>
-                <div className="p-2">
-                    <p className="text-sm text-brand-text-light truncate">{channel.name}</p>
-                </div>
             </div>
-        ))}
+            <div className="p-2 h-1/3 flex items-center">
+                <p className="text-sm text-brand-text-light text-center w-full break-words line-clamp-2">{channel.name}</p>
+            </div>
+        </div>
     </div>
-));
+);
+
+
+const ChannelGrid = React.memo(({ channels, onPlayChannel, onToggleFavorite, favorites }: { channels: Channel[], onPlayChannel: (channel: Channel) => void, onToggleFavorite: (channelId: string) => void, favorites: string[] }) => {
+    const containerRef = useRef<HTMLDivElement>(null);
+    const [gridSize, setGridSize] = useState({ width: 0, height: 0, columnCount: 1, columnWidth: 150, rowHeight: 120 });
+
+    useEffect(() => {
+        const observer = new ResizeObserver(entries => {
+            const entry = entries[0];
+            if (entry) {
+                const { width, height } = entry.contentRect;
+                const CARD_MIN_WIDTH = 140;
+                const CARD_ASPECT_RATIO = 4 / 3;
+                const columnCount = Math.max(1, Math.floor(width / CARD_MIN_WIDTH));
+                const columnWidth = width / columnCount;
+                const rowHeight = columnWidth / CARD_ASPECT_RATIO;
+                setGridSize({ width, height, columnCount, columnWidth, rowHeight });
+            }
+        });
+
+        if (containerRef.current) {
+            observer.observe(containerRef.current);
+        }
+
+        return () => observer.disconnect();
+    }, []);
+
+    const Cell = useCallback(({ columnIndex, rowIndex, style, data }: any) => {
+        const { channels, columnCount, onPlayChannel, onToggleFavorite, favorites } = data;
+        const index = rowIndex * columnCount + columnIndex;
+        if (index >= channels.length) return null;
+        const channel = channels[index];
+        return <ChannelCard channel={channel} onPlayChannel={onPlayChannel} onToggleFavorite={onToggleFavorite} favorites={favorites} style={style} />;
+    }, []);
+
+    const rowCount = Math.ceil(channels.length / gridSize.columnCount);
+
+    return (
+        <div ref={containerRef} className="w-full h-full">
+            {gridSize.width > 0 && (
+                <Grid
+                    className="grid-container"
+                    columnCount={gridSize.columnCount}
+                    columnWidth={gridSize.columnWidth}
+                    height={gridSize.height}
+                    rowCount={rowCount}
+                    rowHeight={gridSize.rowHeight}
+                    width={gridSize.width}
+                    itemData={{
+                        channels,
+                        columnCount: gridSize.columnCount,
+                        onPlayChannel,
+                        onToggleFavorite,
+                        favorites,
+                    }}
+                >
+                    {Cell}
+                </Grid>
+            )}
+        </div>
+    );
+});
 
 type MainView = 'categories' | 'favorites' | 'history';
 
@@ -85,7 +145,7 @@ const MainScreen: React.FC<MainScreenProps> = ({ playlists, activePlaylistId, on
             {/* Header */}
             <header className="flex-shrink-0 bg-brand-surface shadow-md p-2 flex items-center justify-between z-20">
                 <div className="flex items-center space-x-4">
-                    <select value={activePlaylistId || ''} onChange={(e) => onSelectPlaylist(e.target.value)} className="bg-gray-700 border border-gray-600 rounded-md p-2 focus:ring-brand-primary focus:border-brand-primary">
+                    <select disabled={isLoading} value={activePlaylistId || ''} onChange={(e) => onSelectPlaylist(e.target.value)} className="bg-gray-700 border border-gray-600 rounded-md p-2 focus:ring-brand-primary focus:border-brand-primary disabled:opacity-50">
                         {playlists.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                     </select>
                     <button onClick={onAddPlaylist} title="Añadir Lista" className="p-2 rounded-full hover:bg-gray-700 transition-colors">
@@ -93,11 +153,11 @@ const MainScreen: React.FC<MainScreenProps> = ({ playlists, activePlaylistId, on
                     </button>
                     {activePlaylist && (
                         <>
-                        <button onClick={onRefreshPlaylist} title="Actualizar Lista" className="p-2 rounded-full hover:bg-gray-700 transition-colors">
+                        <button disabled={isLoading} onClick={onRefreshPlaylist} title="Actualizar Lista" className="p-2 rounded-full hover:bg-gray-700 transition-colors disabled:opacity-50">
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h5M20 20v-5h-5M20 4s-1.5-2-5-2-6 2.5-6 6s2.5 6 6 6 5-2 5-2" /></svg>
                         </button>
-                        <button onClick={() => onDeletePlaylist(activePlaylist.id)} title="Eliminar Lista" className="p-2 rounded-full hover:bg-red-800 text-red-500 transition-colors">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                        <button disabled={isLoading} onClick={() => onDeletePlaylist(activePlaylist.id)} title="Eliminar Lista" className="p-2 rounded-full hover:bg-red-800 text-red-500 transition-colors disabled:opacity-50">
+                            <svg xmlns="http://www.w.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                         </button>
                         </>
                     )}
@@ -121,7 +181,7 @@ const MainScreen: React.FC<MainScreenProps> = ({ playlists, activePlaylistId, on
                     {mainView === 'categories' && (
                         <div>
                             <h3 className="font-bold text-lg mb-2 border-b border-gray-700 pb-2">Categorías</h3>
-                            <ul className="space-y-1">
+                            <ul className="space-y-1 max-h-96 overflow-y-auto">
                                 <li>
                                     <button onClick={() => setSelectedCategory('All')} className={`w-full text-left p-2 rounded-md ${selectedCategory === 'All' ? 'bg-brand-primary text-white' : 'hover:bg-brand-surface'}`}>Todos</button>
                                 </li>
@@ -138,8 +198,8 @@ const MainScreen: React.FC<MainScreenProps> = ({ playlists, activePlaylistId, on
                 </aside>
 
                 {/* Main Content */}
-                <main className="flex-grow overflow-y-auto">
-                    {isLoading && <div className="flex justify-center items-center h-full"><p>Cargando lista...</p></div>}
+                <main className="flex-grow overflow-y-auto relative">
+                    {isLoading && <div className="absolute inset-0 flex justify-center items-center bg-brand-bg bg-opacity-75 z-30"><p>Cargando lista...</p></div>}
                     {error && <div className="flex justify-center items-center h-full"><p className="text-red-500">{error}</p></div>}
                     {!isLoading && !error && (
                         <ChannelGrid channels={filteredChannels} onPlayChannel={onPlayChannel} onToggleFavorite={onToggleFavorite} favorites={favorites} />

@@ -6,7 +6,7 @@ import WelcomeScreen from './components/WelcomeScreen';
 import AddPlaylistScreen from './components/AddPlaylistScreen';
 import MainScreen from './components/MainScreen';
 import PlayerScreen from './components/PlayerScreen';
-import { parseM3U, fetchAndParseURL, fetchXtream } from './services/playlistParser';
+import { processPlaylistInBackground } from './services/playlistParser';
 
 const App: React.FC = () => {
   const [view, setView] = useState<'welcome' | 'addPlaylist' | 'main' | 'player'>('welcome');
@@ -14,7 +14,7 @@ const App: React.FC = () => {
   const [activePlaylistId, setActivePlaylistId] = useLocalStorage<string | null>('iptv-activePlaylistId', null);
   const [activePlaylistData, setActivePlaylistData] = useState<Category[]>([]);
   const [currentChannel, setCurrentChannel] = useState<Channel | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true); // Start with loading true
   const [error, setError] = useState<string | null>(null);
 
   const [favorites, setFavorites] = useLocalStorage<string[]>('iptv-favorites', []);
@@ -24,17 +24,12 @@ const App: React.FC = () => {
     setIsLoading(true);
     setError(null);
     try {
-      let categories: Category[] = [];
-      if (playlist.type === 'FILE' || playlist.type === 'URL') {
-        categories = await fetchAndParseURL(playlist.source);
-      } else if (playlist.type === 'XTREAM' && playlist.xtream) {
-        categories = await fetchXtream(playlist.source, playlist.xtream.username, playlist.xtream.password);
-      }
+      const categories = await processPlaylistInBackground({ type: 'LOAD', playlist });
       setActivePlaylistData(categories);
       setActivePlaylistId(playlist.id);
       setView('main');
-    } catch (e) {
-      setError('Error al cargar la lista. Por favor, comprueba la fuente y el formato.');
+    } catch (e: any) {
+      setError(e.message || 'Error al cargar la lista. Por favor, comprueba la fuente y el formato.');
       console.error(e);
       setActivePlaylistData([]);
       setActivePlaylistId(null);
@@ -44,16 +39,23 @@ const App: React.FC = () => {
   }, [setActivePlaylistId]);
 
   useEffect(() => {
-    const activePlaylist = playlists.find(p => p.id === activePlaylistId);
-    if (activePlaylist) {
-      loadPlaylist(activePlaylist);
-    } else if (playlists.length > 0) {
-      loadPlaylist(playlists[0]);
-    }
+    const initialize = async () => {
+      const activePlaylist = playlists.find(p => p.id === activePlaylistId);
+      if (activePlaylist) {
+        await loadPlaylist(activePlaylist);
+      } else if (playlists.length > 0) {
+        await loadPlaylist(playlists[0]);
+      } else {
+        // No playlists, stop loading and show add screen
+        setIsLoading(false); 
+      }
+    };
+    initialize();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activePlaylistId, playlists]); // loadPlaylist is stable
+  }, []); // Run only once on initial mount
   
   useEffect(() => {
+    if (isLoading) return; // Don't transition while initial load is happening
     const timer = setTimeout(() => {
       if (view === 'welcome') {
         if (playlists.length === 0) {
@@ -64,35 +66,32 @@ const App: React.FC = () => {
       }
     }, 2000);
     return () => clearTimeout(timer);
-  }, [view, playlists.length]);
+  }, [view, playlists.length, isLoading]);
 
-  const handleAddPlaylist = async (playlist: Omit<Playlist, 'id'>) => {
+  const handleAddPlaylist = async (playlistData: Omit<Playlist, 'id'>) => {
     setIsLoading(true);
     setError(null);
     try {
-        const newPlaylist: Playlist = { ...playlist, id: Date.now().toString() };
-        let categories: Category[] = [];
-        if (newPlaylist.type === 'FILE') {
-             categories = await parseM3U(newPlaylist.source);
-             // For file, source is content. Create a blob URL for consistent handling
-             const blob = new Blob([newPlaylist.source], { type: 'application/vnd.apple.mpegurl' });
-             newPlaylist.source = URL.createObjectURL(blob);
-        } else if (newPlaylist.type === 'URL') {
-            categories = await fetchAndParseURL(newPlaylist.source);
-        } else if (newPlaylist.type === 'XTREAM' && newPlaylist.xtream) {
-            categories = await fetchXtream(newPlaylist.source, newPlaylist.xtream.username, newPlaylist.xtream.password);
-        }
+        const newPlaylist: Playlist = { ...playlistData, id: Date.now().toString() };
+        
+        const categories = await processPlaylistInBackground({ type: 'ADD', playlistData: newPlaylist });
 
         if (categories.length === 0) {
           throw new Error("La lista está vacía o no se pudo analizar.");
+        }
+        
+        // If file, source is content. Create a blob URL for consistent handling
+        if (newPlaylist.type === 'FILE') {
+             const blob = new Blob([newPlaylist.source], { type: 'application/vnd.apple.mpegurl' });
+             newPlaylist.source = URL.createObjectURL(blob);
         }
 
         setPlaylists(prev => [...prev, newPlaylist]);
         setActivePlaylistData(categories);
         setActivePlaylistId(newPlaylist.id);
         setView('main');
-    } catch (e) {
-        setError('Error al añadir la lista. Por favor, comprueba la fuente y el formato.');
+    } catch (e: any) {
+        setError(e.message || 'Error al añadir la lista. Por favor, comprueba la fuente y el formato.');
         console.error(e);
     } finally {
         setIsLoading(false);
@@ -104,8 +103,9 @@ const App: React.FC = () => {
     if (activePlaylistId === id) {
       setActivePlaylistId(null);
       setActivePlaylistData([]);
-      if (playlists.length > 1) {
-        setActivePlaylistId(playlists.filter(p => p.id !== id)[0].id);
+      const remainingPlaylists = playlists.filter(p => p.id !== id);
+      if (remainingPlaylists.length > 0) {
+        loadPlaylist(remainingPlaylists[0]);
       } else {
          setView('addPlaylist');
       }
@@ -114,9 +114,13 @@ const App: React.FC = () => {
 
   const handleSelectPlaylist = (id: string) => {
     if (id !== activePlaylistId) {
-        setActivePlaylistId(id);
+        const playlistToLoad = playlists.find(p => p.id === id);
+        if (playlistToLoad) {
+            loadPlaylist(playlistToLoad);
+        }
     }
   };
+
 
   const handlePlayChannel = (channel: Channel) => {
     setCurrentChannel(channel);
@@ -133,6 +137,10 @@ const App: React.FC = () => {
   };
 
   const renderContent = () => {
+    if (view === 'welcome') {
+        return <WelcomeScreen />;
+    }
+    
     switch (view) {
       case 'player':
         return currentChannel && <PlayerScreen channel={currentChannel} onBack={() => setView('main')} />;
@@ -164,7 +172,6 @@ const App: React.FC = () => {
             error={error}
           />
         );
-      case 'welcome':
       default:
         return <WelcomeScreen />;
     }
