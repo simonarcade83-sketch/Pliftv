@@ -1,0 +1,5 @@
+{
+  "name": "Plif! tv",
+  "description": "Una aplicación web de reproductor de IPTV con todas las funciones que permite a los usuarios cargar y ver canales desde archivos M3U, URL o cuentas de Xtream Codes. Incluye funciones como categorización de canales, favoritos, historial y búsqueda, con una interfaz moderna y responsiva.",
+  "requestFramePermissions": []
+}
